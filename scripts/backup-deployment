@@ -4,6 +4,9 @@ umask 077
 
 [[ ${EUID:-$(id -u)} == 0 ]] || { printf 'ROOT_REQUIRED\n' >&2; exit 1; }
 base=${CHINA_PROXY_BASE:-/home/ubuntu/china-proxy-deployment}
+lock_file=${BACKUP_LOCK:-/run/lock/china-proxy-backup.lock}
+exec 9>"$lock_file"
+flock -n 9 || { printf 'BACKUP_ALREADY_RUNNING\n' >&2; exit 1; }
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 destination="$base/backups/${stamp}-full"
 tmpdir="${destination}.tmp.$$"
@@ -45,6 +48,6 @@ chmod 600 "$archive"
   sha256sum -c SHA256SUMS >/dev/null
 )
 # Atomic rename only after archive and checksum are valid
-mv -- "$tmpdir" "$destination"
+mv -T -- "$tmpdir" "$destination"
 trap - ERR
 printf 'backup=%s\n' "$destination"

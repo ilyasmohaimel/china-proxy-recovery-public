@@ -24,6 +24,7 @@ PRUNE_AFTER = 21600
 os.umask(0o077)
 
 _state_lock = threading.Lock()
+_in_flight = set()
 
 
 def load_state():
@@ -71,16 +72,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
+                if any(ip in _in_flight for ip in ips):
+                    print("suppressed concurrent in-flight for IPs: %s" % ", ".join(ips), flush=True)
+                    self.send_response(200)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 for ip in ips:
-                    state[ip] = now
-                for ip in [k for k, t in state.items() if now - t > PRUNE_AFTER]:
-                    del state[ip]
-                save_state(state)
+                    _in_flight.add(ip)
         req = urllib.request.Request(NTFY_TARGET + self.path, data=body, method="POST")
         for header in ("Authorization", "Content-Type", "X-Priority", "X-Tags"):
             value = self.headers.get(header)
             if value:
                 req.add_header(header, value)
+        success = False
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 payload = resp.read()
@@ -89,11 +94,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
+                success = resp.status < 400
         except Exception as exc:
             print("forward failed: %s" % exc, flush=True)
             self.send_response(502)
             self.send_header("Content-Length", "0")
             self.end_headers()
+            success = False
+        if ips:
+            with _state_lock:
+                for ip in ips:
+                    _in_flight.discard(ip)
+                if success:
+                    state = load_state()
+                    for ip in ips:
+                        state[ip] = now
+                    for ip in [k for k, t in state.items() if now - t > PRUNE_AFTER]:
+                        del state[ip]
+                    save_state(state)
 
     def log_message(self, fmt, *args):
         sys.stderr.write(fmt % args + "\n")

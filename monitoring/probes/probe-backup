@@ -5,7 +5,7 @@ load_probe_config
 start=$(now_ms); success=false; error=
 backup_root=${BACKUP_ROOT:-/home/ubuntu/china-proxy-deployment/backups}
 max_age=${BACKUP_MAX_AGE_SECONDS:-604800}
-newest=$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2- || true)
+newest=$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d -name "*-full" -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2- || true)
 if [[ -z $newest ]]; then
   error=BACKUP_MISSING
 elif [[ ! -s "$newest/china-proxy-private.tgz" ]]; then
