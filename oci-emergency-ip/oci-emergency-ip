@@ -58,7 +58,7 @@ oci_json() {
 }
 
 discover() {
-  local instance attachments vnic private_ips private_id public
+  local instance attachments vnic private_ips public
   instance=$(oci_json compute instance get --instance-id "$INSTANCE_ID")
   [[ $(jq -r '.data["lifecycle-state"]' <<<"$instance") == RUNNING ]] || die "INSTANCE_NOT_RUNNING"
   COMPARTMENT_ID=${COMPARTMENT_ID:-$(jq -r '.data["compartment-id"]' <<<"$instance")}

@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 umask 077
 
-readonly PROBE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+PROBE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+readonly PROBE_DIR
 readonly PROBE_CONFIG=${CHINA_PROXY_PROBE_CONFIG:-$HOME/.config/china-proxy-probes/config.env}
 
 load_probe_config() {
@@ -15,8 +16,7 @@ now_ms() { date +%s%3N; }
 
 wait_for_socks() {
   local port=$1 pid=$2
-  local n
-  for n in {1..30}; do
+  for _ in {1..30}; do
     kill -0 "$pid" 2>/dev/null || return 1
     if curl -fsS --max-time 2 --proxy "socks5h://127.0.0.1:$port" https://www.google.com/generate_204 -o /dev/null 2>/dev/null; then
       return 0
@@ -28,7 +28,7 @@ wait_for_socks() {
 
 run_transport_probe() {
   local label=$1 kind=$2 binary=$3 config=$4 port=$5
-  local start end duration temp pid error= success=false egress=
+  local start end duration temp pid error='' success=false egress=''
   start=$(now_ms)
   temp=$(mktemp -d "/tmp/china-proxy-probe.${kind}.XXXXXX")
   chmod 700 "$temp"
