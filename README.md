@@ -1,6 +1,6 @@
 # china-proxy-recovery
 
-Public, sanitized version of my private [`china-proxy-recovery`](https://github.com/ilyasmohaimel/china-proxy-recovery) repository.
+Public, sanitized version of my private china-proxy-recovery repository.
 
 The private repository contains deployment-specific recovery data for a live server. This public version keeps only the reusable tooling, example configs, and documentation — with all secrets, infrastructure identifiers, personal paths, and live configuration removed. All values that look like credentials or identifiers are placeholders.
 
@@ -17,18 +17,19 @@ Use it as a template/reference for a similar self-hosted stack; replace every pl
 - **Recovery & maintenance** — offline recovery guide, block-volume layout, update runbook
 
 ```
-                    Oracle Cloud VM (Ubuntu 22.04 ARM64)
-                    ┌──────────────────────────────────────────┐
-      Internet ───▶ │ TCP/443  VLESS + REALITY + Vision (RAW)  │
-                    │         └─► 127.0.0.1:8443 XHTTP REALITY  │
-                    │ UDP/443  Hysteria2 + Salamander           │
-                    │ 5353/udp Private AdGuard Home (VPC-only) │
-                    │ 3000/tcp AdGuard admin (localhost)       │
-                    │ 22/tcp   SSH                              │
-                    └──────────────────────────────────────────┘
-             │
-             │  private AdGuard ──► DoH upstream (Cloudflare / Google)
-             │  OCI ephemeral public IP (rotatable)
++----------------------------------------------------+
+| Oracle Cloud VM (Ubuntu 22.04 ARM64)               |
++----------------------------------------------------+
+| Internet --> TCP/443 : VLESS + REALITY + Vision    |
+|              +--> 127.0.0.1:8443 : XHTTP + REALITY |
+| Internet --> UDP/443 : Hysteria2 + Salamander      |
+|              UDP/5353: AdGuard Home (private)      |
+|              TCP/3000: AdGuard admin (localhost)   |
+|              TCP/22  : SSH                         |
+|----------------------------------------------------|
+| private AdGuard --> DoH upstream                   |
+| OCI ephemeral public IP (rotatable)                |
++----------------------------------------------------+
 ```
 
 All three transports share the same Oracle public IP and private AdGuard resolver (`<VPS_PRIVATE_IP>:5353`).
