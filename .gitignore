@@ -1,0 +1,54 @@
+# Secrets
+*.key
+*.pem
+*.p8
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+.env
+.env.*
+*.env
+secrets.env
+credentials.json
+
+# Allow documented examples
+!*.example
+!env.example
+
+# Generated proxy credentials
+*vless*.txt
+*hysteria*.txt
+*client-live*.json
+*client-live*.yaml
+*client-live*.yml
+client-configs/
+*.qr
+*.png
+
+# OCI
+.oci/
+oci_api_key*
+oci_cli_rc
+*.tfvars
+terraform.tfstate
+terraform.tfstate.*
+
+# Runtime/private state
+private/
+state/
+backups/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.pid
+*.lock
+
+# Misc
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp

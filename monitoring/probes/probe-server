@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$(dirname "$0")/lib.sh"
+load_probe_config
+start=$(now_ms); success=false; error=
+for unit in xray hysteria-server adguardhome; do
+  if ! systemctl is-active --quiet "$unit"; then error="SERVICE_INACTIVE:${unit}"; break; fi
+done
+if [[ -z $error && $(systemctl --failed --no-legend | wc -l) -gt 0 ]]; then error=SYSTEMD_FAILED_UNITS; fi
+disk=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+if [[ -z $error && $disk -ge 90 ]]; then error=DISK_CRITICAL; fi
+available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+if [[ -z $error && $((available*100/total)) -lt 10 ]]; then error=MEMORY_CRITICAL; fi
+if [[ -z $error ]] && ! ip -4 route show default | grep -q '^default '; then error=DEFAULT_ROUTE_MISSING; fi
+if [[ -z $error ]]; then success=true; fi
+duration=$(($(now_ms)-start))
+[[ $success == true ]] || { printf '%s\n' "$error" >&2; exit 1; }
+printf 'SERVER_OK duration_ms=%s\n' "$duration"

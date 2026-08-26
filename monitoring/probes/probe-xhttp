@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$(dirname "$0")/lib.sh"
+load_probe_config
+run_transport_probe XHTTP xhttp "$XRAY_BIN" "$XHTTP_CONFIG" "$XHTTP_SOCKS_PORT"

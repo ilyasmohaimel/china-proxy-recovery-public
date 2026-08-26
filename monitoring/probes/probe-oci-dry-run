@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$(dirname "$0")/lib.sh"
+load_probe_config
+start=$(now_ms); success=false; error=
+if ! output=$(oci-emergency-ip rotate --dry-run 2>&1); then
+  error=$(printf '%s' "$output" | tail -1 | cut -c1-80)
+else
+  success=true
+fi
+duration=$(($(now_ms)-start))
+[[ $success == true ]] || { printf '%s\n' "$error" >&2; exit 1; }
+printf 'OCI_DRY_RUN_OK duration_ms=%s\n' "$duration"

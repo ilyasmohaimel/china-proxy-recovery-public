@@ -1,0 +1,15 @@
+[Unit]
+Description=CrowdSec to ntfy deduplication filter (4 hour per-IP window)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/libexec/crowdsec-ntfy-dedup.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/crowdsec-ntfy-dedup
+
+[Install]
+WantedBy=multi-user.target

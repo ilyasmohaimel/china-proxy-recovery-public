@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -u
+dir=$(cd -- "$(dirname -- "$0")" && pwd)
+status=0
+probes=(probe-reality probe-hysteria2 probe-xhttp)
+if [[ ${CHINA_PROXY_PROBE_SCOPE:-local} == local ]]; then
+  probes+=(probe-adguard probe-server probe-backup)
+fi
+for probe in "${probes[@]}"; do
+  "$dir/$probe" || status=1
+done
+exit "$status"

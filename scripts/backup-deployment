@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+[[ ${EUID:-$(id -u)} == 0 ]] || { printf 'ROOT_REQUIRED\n' >&2; exit 1; }
+base=${CHINA_PROXY_BASE:-/home/ubuntu/china-proxy-deployment}
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+destination="$base/backups/${stamp}-full"
+archive="$destination/china-proxy-private.tgz"
+install -d -m 700 "$destination"
+
+paths=()
+for path in \
+  /usr/local/bin/xray \
+  /usr/local/bin/hysteria \
+  /usr/local/bin/AdGuardHome \
+  /usr/local/etc/xray/config.json \
+  /etc/hysteria/config.yaml \
+  /etc/adguardhome/AdGuardHome.yaml \
+  /var/lib/adguardhome \
+  /etc/systemd/system/xray.service \
+  /etc/systemd/system/hysteria-server.service \
+  /etc/systemd/system/adguardhome.service \
+  "$base/client-configs" \
+  "$base/private" \
+  "$base/monitoring" \
+  "$base/scripts" \
+  "$base/state"; do
+  [[ -e $path ]] && paths+=("${path#/}")
+done
+
+tar -C / -czf "$archive" "${paths[@]}"
+chmod 600 "$archive"
+(
+  cd "$destination"
+  sha256sum "${archive##*/}" >SHA256SUMS
+)
+chmod 600 "$destination/SHA256SUMS"
+printf 'backup=%s\n' "$destination"

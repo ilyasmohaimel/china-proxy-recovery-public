@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+base=${CHINA_PROXY_BASE:-/home/ubuntu/china-proxy-deployment}
+probes="$base/monitoring/probes"
+export CHINA_PROXY_PROBE_CONFIG=${CHINA_PROXY_PROBE_CONFIG:-$probes/private/config.env}
+
+case "${1:-}" in
+  status)
+    systemctl --no-pager --full status xray hysteria-server adguardhome
+    ss -lntup
+    ;;
+  test)
+    case "${2:-all}" in
+      all) "$probes/probe-all" ;;
+      reality) "$probes/probe-reality" ;;
+      hysteria|hysteria2) "$probes/probe-hysteria2" ;;
+      xhttp) "$probes/probe-xhttp" ;;
+      dns|adguard) "$probes/probe-adguard" ;;
+      *) printf 'unknown test\n' >&2; exit 2 ;;
+    esac
+    ;;
+  adguard)
+    [[ ${2:-} == status ]] || { printf 'usage: proxyctl adguard status\n' >&2; exit 2; }
+    systemctl --no-pager --full status adguardhome
+    ;;
+  monitor)
+    [[ ${2:-} == status ]] || { printf 'usage: proxyctl monitor status\n' >&2; exit 2; }
+    systemctl --no-pager --full status china-proxy-storage-guard.timer 2>/dev/null || systemctl --no-pager --full status --failed
+    ;;
+  oci)
+    [[ ${2:-} == status ]] || { printf 'usage: proxyctl oci status\n' >&2; exit 2; }
+    oci-emergency-ip status
+    ;;
+  rotate-ip)
+    [[ ${2:-} == --dry-run ]] || { printf 'proxyctl only exposes rotation dry-run\n' >&2; exit 2; }
+    oci-emergency-ip rotate --dry-run
+    ;;
+  *)
+    printf 'usage: proxyctl status|test [all|reality|hysteria2|xhttp|dns]|adguard status|monitor status|oci status|rotate-ip --dry-run\n' >&2
+    exit 2
+    ;;
+esac

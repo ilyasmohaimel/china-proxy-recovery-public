@@ -1,0 +1,18 @@
+# Copy to a protected path outside Git and set mode 600.
+CURRENT_IP=<CURRENT_PUBLIC_IP>
+EXPECTED_EGRESS_IP=<CURRENT_PUBLIC_IP>
+ADGUARD_IP=<VPS_PRIVATE_IP>
+ADGUARD_PORT=5353
+
+XRAY_BIN=/usr/local/bin/xray
+HYSTERIA_BIN=/usr/local/bin/hysteria
+REALITY_CONFIG=/path/to/private/reality-client.json
+HYSTERIA_CONFIG=/path/to/private/hysteria-client.yaml
+XHTTP_CONFIG=/path/to/private/xhttp-client.json
+REALITY_SOCKS_PORT=19101
+HYSTERIA_SOCKS_PORT=19102
+XHTTP_SOCKS_PORT=19103
+
+# On an external host, set CHINA_PROXY_PROBE_SCOPE=external so probe-all skips
+# Oracle-local service and backup checks. Probes only print results; the Gatus
+# push target was removed, so there is no endpoint mapping to configure.

@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PROG=${0##*/}
+readonly DEFAULT_BASE=/home/ubuntu/china-proxy-deployment
+readonly BASE_DIR=${CHINA_PROXY_BASE:-$DEFAULT_BASE}
+readonly PRIVATE_DIR=${OCI_ROTATION_PRIVATE_DIR:-$BASE_DIR/private}
+readonly STATE_DIR=${OCI_ROTATION_STATE_DIR:-$BASE_DIR/state}
+readonly BACKUP_DIR=${OCI_ROTATION_BACKUP_DIR:-$BASE_DIR/backups}
+readonly CONFIG_FILE=${OCI_ROTATION_CONFIG:-$PRIVATE_DIR/oci-rotation.env}
+readonly OCI_BIN=${OCI_BIN:-$BASE_DIR/tools/oci-cli/bin/oci}
+readonly LOCK_FILE=${OCI_ROTATION_LOCK:-/run/lock/china-proxy-ip-rotation.lock}
+
+die() { printf '%s\n' "$1" >&2; exit "${2:-1}"; }
+need() { command -v "$1" >/dev/null || die "MISSING_DEPENDENCY:$1"; }
+imds() { curl -fsS --connect-timeout 2 --max-time 5 "http://169.254.169.254/opc/v2/instance/$1" -H 'Authorization: Bearer Oracle'; }
+
+load_config() {
+  if [[ -f $CONFIG_FILE ]]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+  fi
+  [[ -x $OCI_BIN ]] || die "OCI_CLI_MISSING"
+  need curl
+  need jq
+  INSTANCE_ID=${INSTANCE_ID:-$(imds id)}
+  REGION=${REGION:-$(imds region)}
+  OCI_AUTH=${OCI_AUTH:-instance_principal}
+}
+
+oci_json() {
+  "$OCI_BIN" "$@" --region "$REGION" --auth "$OCI_AUTH" --output json 2>/dev/null || die "OCI_AUTH_FAILURE"
+}
+
+discover() {
+  local instance attachments vnic private_ips private_id public
+  instance=$(oci_json compute instance get --instance-id "$INSTANCE_ID")
+  [[ $(jq -r '.data["lifecycle-state"]' <<<"$instance") == RUNNING ]] || die "INSTANCE_NOT_RUNNING"
+  COMPARTMENT_ID=${COMPARTMENT_ID:-$(jq -r '.data["compartment-id"]' <<<"$instance")}
+  attachments=$(oci_json compute vnic-attachment list --instance-id "$INSTANCE_ID" --compartment-id "$COMPARTMENT_ID")
+  [[ $(jq '[.data[] | select(."lifecycle-state"=="ATTACHED")] | length' <<<"$attachments") == 1 ]] || die "VNIC_SELECTION_AMBIGUOUS"
+  VNIC_ID=$(jq -r '.data[] | select(."lifecycle-state"=="ATTACHED") | ."vnic-id"' <<<"$attachments")
+  vnic=$(oci_json network vnic get --vnic-id "$VNIC_ID")
+  [[ $(jq -r '.data["is-primary"]' <<<"$vnic") == true ]] || die "PRIMARY_VNIC_NOT_SELECTED"
+  private_ips=$(oci_json network private-ip list --vnic-id "$VNIC_ID")
+  [[ $(jq '[.data[] | select(."is-primary"==true)] | length' <<<"$private_ips") == 1 ]] || die "PRIVATE_IP_SELECTION_AMBIGUOUS"
+  PRIVATE_IP_ID=$(jq -r '.data[] | select(."is-primary"==true) | .id' <<<"$private_ips")
+  PRIVATE_IP=$(jq -r '.data[] | select(."is-primary"==true) | ."ip-address"' <<<"$private_ips")
+  public=$(oci_json network public-ip get --private-ip-id "$PRIVATE_IP_ID")
+  PUBLIC_IP_ID=$(jq -r '.data.id' <<<"$public")
+  PUBLIC_IP=$(jq -r '.data["ip-address"]' <<<"$public")
+  PUBLIC_IP_LIFETIME=$(jq -r '.data.lifetime' <<<"$public")
+  DISPLAY_NAME=$(jq -r '.data["display-name"]' <<<"$instance")
+  [[ -n $PUBLIC_IP && $PUBLIC_IP != null ]] || die "PUBLIC_IP_NOT_FOUND"
+}
+
+validate_artifacts() {
+  local file
+  local files=(
+    "$BASE_DIR/client-configs/xray-vless-reality-uri.txt"
+    "$BASE_DIR/client-configs/hysteria2-uri.txt"
+    "$BASE_DIR/client-configs/xray-xhttp-reality-client.json"
+    "$BASE_DIR/client-configs/xray-xhttp-reality-uri.txt"
+  )
+  for file in "${files[@]}"; do
+    [[ -s $file ]] || die "PROFILE_PARSE_FAILURE:${file##*/}"
+  done
+  python3 - "$PUBLIC_IP" "${files[@]}" <<'PY'
+import json, pathlib, sys
+ip, *paths = sys.argv[1:]
+for raw in paths:
+    p = pathlib.Path(raw)
+    text = p.read_text()
+    if p.suffix == ".json": json.loads(text)
+    if ip not in text: raise SystemExit(f"PROFILE_IP_MISMATCH:{p.name}")
+PY
+}
+
+print_status() {
+  discover
+  printf 'instance=%s\nregion=%s\npublic_ip=%s\nip_type=%s\nprivate_ip=%s\n' \
+    "$DISPLAY_NAME" "$REGION" "$PUBLIC_IP" "$PUBLIC_IP_LIFETIME" "$PRIVATE_IP"
+}
+
+rotate_dry_run() {
+  discover
+  validate_artifacts
+  [[ $PUBLIC_IP_LIFETIME == EPHEMERAL ]] || die "IP_NOT_EPHEMERAL"
+  printf 'dry_run=ok\ninstance=%s\ncurrent_ip=%s\nip_type=%s\n' "$DISPLAY_NAME" "$PUBLIC_IP" "$PUBLIC_IP_LIFETIME"
+}
+
+replace_ip() {
+  local old=$1 new=$2
+  python3 - "$old" "$new" "$BASE_DIR" <<'PY'
+import pathlib, sys
+old, new, base = sys.argv[1:]
+root = pathlib.Path(base)
+targets = [
+ root/'client-configs/xray-vless-reality-uri.txt',
+ root/'client-configs/hysteria2-uri.txt',
+ root/'client-configs/xray-xhttp-reality-client.json',
+ root/'client-configs/xray-xhttp-reality-uri.txt',
+ root/'client-configs/sing-box-reality-outbound.json',
+ root/'client-configs/sing-box-hysteria2-outbound.json',
+ root/'monitoring/probes/private/config.env',
+ root/'state/current-ip.env',
+]
+for p in targets:
+    if not p.exists(): continue
+    text = p.read_text()
+    if old not in text: continue
+    p.write_text(text.replace(old, new))
+    p.chmod(0o600)
+PY
+}
+
+rotate_confirm() {
+  [[ ${EUID:-$(id -u)} == 0 ]] || die "ROOT_REQUIRED"
+  discover
+  validate_artifacts
+  [[ $PUBLIC_IP_LIFETIME == EPHEMERAL ]] || die "IP_NOT_EPHEMERAL"
+  [[ ${ALLOW_ROTATION:-no} == yes ]] || die "ROTATION_NOT_ARMED"
+  [[ ${CONFIRM_ROTATION:-} == "$PUBLIC_IP" ]] || die "CONFIRM_IP_MISMATCH"
+  local stamp old new backup
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  old=$PUBLIC_IP
+  backup="$BACKUP_DIR/${stamp}-before-ip-rotation"
+  install -d -m 700 "$backup" "$STATE_DIR"
+  tar -C "$BASE_DIR" -czf "$backup/deployment.tgz" client-configs private monitoring 2>/dev/null || die "BACKUP_FAILURE"
+  chmod 600 "$backup/deployment.tgz"
+  oci_json network public-ip delete --public-ip-id "$PUBLIC_IP_ID" --force --wait-for-state TERMINATED --max-wait-seconds 120 >/dev/null
+  public=$(oci_json network public-ip create --compartment-id "$COMPARTMENT_ID" --lifetime EPHEMERAL --private-ip-id "$PRIVATE_IP_ID" --wait-for-state ASSIGNED --max-wait-seconds 120)
+  new=$(jq -r '.data["ip-address"]' <<<"$public")
+  [[ $new =~ ^[0-9]+(\.[0-9]+){3}$ && $new != "$old" ]] || die "NEW_IP_INVALID"
+  replace_ip "$old" "$new"
+  install -m 600 /dev/null "$STATE_DIR/current-ip.env"
+  printf 'CURRENT_PUBLIC_IP=%q\nUPDATED_AT=%q\n' "$new" "$stamp" >"$STATE_DIR/current-ip.env"
+  if command -v qrencode >/dev/null; then
+    qrencode -o "$BASE_DIR/client-configs/xray-vless-reality.png" <"$BASE_DIR/client-configs/xray-vless-reality-uri.txt"
+    qrencode -o "$BASE_DIR/client-configs/hysteria2.png" <"$BASE_DIR/client-configs/hysteria2-uri.txt"
+    qrencode -o "$BASE_DIR/client-configs/xray-xhttp-reality.png" <"$BASE_DIR/client-configs/xray-xhttp-reality-uri.txt"
+    chmod 600 "$BASE_DIR/client-configs/"*.png
+  fi
+  local report="$BASE_DIR/diagnostics/${stamp}-ip-rotation.md"
+  local check=ok
+  /usr/local/bin/xray run -test -config /usr/local/etc/xray/config.json >/dev/null || check=failed
+  systemctl is-active --quiet xray hysteria-server adguardhome || check=failed
+  curl -4fsS --max-time 20 https://icanhazip.com/ | grep -qx "$new" || check=failed
+  CHINA_PROXY_PROBE_CONFIG="$BASE_DIR/monitoring/probes/private/config.env" "$BASE_DIR/monitoring/probes/probe-all" >/dev/null || check=failed
+  install -m 600 /dev/null "$report"
+  printf '# OCI IP rotation\n\n- Time: %s\n- Old IP: %s\n- New IP: %s\n- IP type: EPHEMERAL\n- Post-check: %s\n- Backup: %s\n' "$stamp" "$old" "$new" "$check" "$backup" >"$report"
+  [[ $check == ok ]] || die "POST_ROTATION_CHECK_FAILED"
+  printf 'rotation=complete\nold_ip=%s\nnew_ip=%s\nbackup=%s\nreport=%s\n' "$old" "$new" "$backup" "$report"
+}
+
+main() {
+  load_config
+  install -d -m 700 "$STATE_DIR" "$BACKUP_DIR"
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || die "ROTATION_ALREADY_RUNNING"
+  case "${1:-}" in
+    status) print_status ;;
+    rotate)
+      case "${2:-}" in
+        --dry-run) rotate_dry_run ;;
+        --confirm) rotate_confirm ;;
+        *) die "usage: $PROG rotate --dry-run|--confirm" 2 ;;
+      esac ;;
+    *) die "usage: $PROG status|rotate --dry-run|rotate --confirm" 2 ;;
+  esac
+}
+main "$@"

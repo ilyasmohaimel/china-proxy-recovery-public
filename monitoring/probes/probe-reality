@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$(dirname "$0")/lib.sh"
+load_probe_config
+run_transport_probe REALITY reality "$XRAY_BIN" "$REALITY_CONFIG" "$REALITY_SOCKS_PORT"

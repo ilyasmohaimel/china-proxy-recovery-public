@@ -1,0 +1,84 @@
+{
+  "inbounds": [
+    {
+      "tag": "vless-reality",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "<VLESS_UUID>",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "target": "127.0.0.1:8443",
+          "serverNames": ["<REALITY_SNI>"],
+          "privateKey": "<REALITY_PRIVATE_KEY>",
+          "shortIds": ["<REALITY_SHORT_ID>"]
+        }
+      }
+    },
+    {
+      "tag": "vless-xhttp-reality",
+      "listen": "127.0.0.1",
+      "port": 8443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "<XHTTP_UUID>",
+            "flow": ""
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "target": "<REALITY_TARGET>:443",
+          "serverNames": ["<REALITY_SNI>"],
+          "privateKey": "<XHTTP_REALITY_PRIVATE_KEY>",
+          "shortIds": ["<XHTTP_SHORT_ID>"]
+        },
+        "xhttpSettings": {
+          "path": "<XHTTP_PATH>"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "ip": ["<VPS_PRIVATE_IP>/32"],
+        "port": "5353",
+        "network": "tcp,udp",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": ["geoip:private"],
+        "outboundTag": "block"
+      }
+    ]
+  }
+}

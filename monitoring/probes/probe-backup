@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$(dirname "$0")/lib.sh"
+load_probe_config
+start=$(now_ms); success=false; error=
+backup_root=${BACKUP_ROOT:-/home/ubuntu/china-proxy-deployment/backups}
+max_age=${BACKUP_MAX_AGE_SECONDS:-604800}
+newest=$(find "$backup_root" -mindepth 1 -maxdepth 1 -printf '%T@\n' 2>/dev/null | sort -nr | head -1 || true)
+if [[ -z $newest ]]; then
+  error=BACKUP_MISSING
+elif (( $(date +%s) - ${newest%.*} > max_age )); then
+  error=BACKUP_STALE
+else
+  success=true
+fi
+duration=$(($(now_ms)-start))
+[[ $success == true ]] || { printf '%s\n' "$error" >&2; exit 1; }
+printf 'BACKUP_OK duration_ms=%s\n' "$duration"

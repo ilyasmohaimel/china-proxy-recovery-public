@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$(dirname "$0")/lib.sh"
+load_probe_config
+start=$(now_ms); success=false; error=
+normal=$(dig +short +time=3 +tries=1 @"$ADGUARD_IP" -p "$ADGUARD_PORT" cloudflare.com A | head -1 || true)
+blocked=$(dig +short +time=3 +tries=1 @"$ADGUARD_IP" -p "$ADGUARD_PORT" googleads.g.doubleclick.net A | head -1 || true)
+if [[ ! $normal =~ ^[0-9]+(\.[0-9]+){3}$ || $normal == 0.0.0.0 ]]; then
+  error=DNS_UPSTREAM_FAILURE
+elif [[ $blocked != 0.0.0.0 ]]; then
+  error=DNS_FILTER_FAILURE
+else
+  success=true
+fi
+duration=$(($(now_ms)-start))
+[[ $success == true ]] || { printf '%s\n' "$error" >&2; exit 1; }
+printf 'ADGUARD_OK duration_ms=%s\n' "$duration"

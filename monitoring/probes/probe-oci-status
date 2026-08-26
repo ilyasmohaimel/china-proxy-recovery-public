@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$(dirname "$0")/lib.sh"
+load_probe_config
+start=$(now_ms); success=false; error=
+if ! output=$(oci-emergency-ip status 2>&1); then
+  error=$(printf '%s' "$output" | tail -1 | cut -c1-80)
+elif ! grep -q "public_ip=$CURRENT_IP" <<<"$output"; then
+  error=PUBLIC_IP_CHANGED
+else
+  success=true
+fi
+duration=$(($(now_ms)-start))
+[[ $success == true ]] || { printf '%s\n' "$error" >&2; exit 1; }
+printf 'OCI_STATUS_OK duration_ms=%s\n' "$duration"

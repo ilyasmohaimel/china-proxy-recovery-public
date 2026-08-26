@@ -1,0 +1,55 @@
+http:
+  address: 127.0.0.1:3000
+  session_ttl: 720h
+
+users:
+  - name: <ADMIN_USER>
+    password: <BCRYPT_HASH>
+
+dns:
+  bind_hosts:
+    - <VPS_PRIVATE_IP>
+  port: 5353
+  upstream_dns:
+    - https://cloudflare-dns.com/dns-query
+  fallback_dns:
+    - https://dns.google/dns-query
+  bootstrap_dns:
+    - 1.1.1.1
+    - 1.0.0.1
+    - 8.8.8.8
+    - 8.8.4.4
+  upstream_mode: load_balance
+  upstream_timeout: 10s
+  enable_dnssec: true
+  aaaa_disabled: true
+  bootstrap_prefer_ipv6: false
+  cache_size: 67108864
+  cache_optimistic: true
+  edns_client_subnet:
+    enabled: false
+    use_custom: false
+
+filtering:
+  filtering_enabled: true
+  filters_update_interval: 24
+
+filters:
+  - enabled: true
+    url: https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/pro.txt
+    name: HaGeZi Multi PRO
+    id: 1
+  - enabled: true
+    url: https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/tif.medium.txt
+    name: HaGeZi TIF Medium
+    id: 2
+
+querylog:
+  enabled: true
+  interval: 1d
+
+statistics:
+  enabled: true
+  interval: 1d
+
+schema_version: 34
