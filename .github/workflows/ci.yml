@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: ShellCheck
+        run: |
+          shellcheck -S warning \
+            oci-emergency-ip/oci-emergency-ip \
+            scripts/backup-deployment \
+            scripts/proxyctl \
+            monitoring/probes/lib.sh \
+            monitoring/probes/probe-adguard \
+            monitoring/probes/probe-all \
+            monitoring/probes/probe-backup \
+            monitoring/probes/probe-hysteria2 \
+            monitoring/probes/probe-oci-dry-run \
+            monitoring/probes/probe-oci-status \
+            monitoring/probes/probe-reality \
+            monitoring/probes/probe-server \
+            monitoring/probes/probe-xhttp
+
+      - name: Python syntax check
+        run: |
+          python -m py_compile monitoring/probes/*.py monitoring/crowdsec-ntfy/*.py
+          python -m compileall -q monitoring/probes monitoring/crowdsec-ntfy
+
+      - name: JSON validation
+        run: |
+          for f in configs/xray/*.example; do
+            echo "checking $f"
+            python -m json.tool "$f" >/dev/null
+          done
+          python -m json.tool configs/adguard/AdGuardHome.yaml.example >/dev/null 2>&1 || echo "AdGuard YAML not JSON, skipping"
+          # Validate probe configs if JSON
+          for f in monitoring/probes/*.json 2>/dev/null; do
+            python -m json.tool "$f" >/dev/null
+          done
+
+      - name: YAML validation
+        run: |
+          pip install -q pyyaml
+          python -c "import yaml, pathlib, sys; [yaml.safe_load(p.read_text()) for p in pathlib.Path('.').rglob('*.yaml') if p.is_file()]; [yaml.safe_load(p.read_text()) for p in pathlib.Path('.').rglob('*.yml') if p.is_file()]"
+          python -c "import yaml, pathlib; [yaml.safe_load(p.read_text()) for p in pathlib.Path('configs').rglob('*.yaml*')]"
+          echo "YAML parse OK"
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

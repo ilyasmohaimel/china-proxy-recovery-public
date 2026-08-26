@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 [[ ${EUID:-$(id -u)} == 0 ]] || { printf 'ROOT_REQUIRED\n' >&2; exit 1; }
 base=${CHINA_PROXY_BASE:-/home/ubuntu/china-proxy-deployment}
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 destination="$base/backups/${stamp}-full"
-archive="$destination/china-proxy-private.tgz"
-install -d -m 700 "$destination"
+tmpdir="${destination}.tmp.$$"
+archive="$tmpdir/china-proxy-private.tgz"
+
+cleanup() {
+  rm -rf -- "$tmpdir"
+}
+trap cleanup ERR
+
+install -d -m 700 "$tmpdir"
 
 paths=()
 for path in \
@@ -31,8 +39,12 @@ done
 tar -C / -czf "$archive" "${paths[@]}"
 chmod 600 "$archive"
 (
-  cd "$destination"
+  cd "$tmpdir"
   sha256sum "${archive##*/}" >SHA256SUMS
+  chmod 600 SHA256SUMS
+  sha256sum -c SHA256SUMS >/dev/null
 )
-chmod 600 "$destination/SHA256SUMS"
+# Atomic rename only after archive and checksum are valid
+mv -- "$tmpdir" "$destination"
+trap - ERR
 printf 'backup=%s\n' "$destination"

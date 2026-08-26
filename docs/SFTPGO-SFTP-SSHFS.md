@@ -6,7 +6,7 @@ The SFTPGo pattern confines a cloud account to a single directory (e.g., `/srv/c
 
 ## Server
 
-The SFTP listener in this example uses TCP/8448. Allow that port in UFW and OCI, while keeping TCP/445 private-only if you use Samba.
+The SFTP listener in this example uses TCP/<SFTP_PORT>. Allow that port in UFW and OCI, while keeping TCP/445 private-only if you use Samba.
 
 The SFTPGo account root is `/srv/cloud`; an SFTP client sees that as `/` and cannot browse the rest of `/srv`.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 readonly PROBE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 readonly PROBE_CONFIG=${CHINA_PROXY_PROBE_CONFIG:-$HOME/.config/china-proxy-probes/config.env}

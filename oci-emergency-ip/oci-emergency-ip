@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 readonly PROG=${0##*/}
 readonly DEFAULT_BASE=/home/ubuntu/china-proxy-deployment
@@ -23,13 +24,37 @@ load_config() {
   [[ -x $OCI_BIN ]] || die "OCI_CLI_MISSING"
   need curl
   need jq
-  INSTANCE_ID=${INSTANCE_ID:-$(imds id)}
-  REGION=${REGION:-$(imds region)}
+  INSTANCE_ID=${INSTANCE_ID:-$(imds id 2>/dev/null || true)}
+  REGION=${REGION:-$(imds region 2>/dev/null || true)}
+  [[ -n ${INSTANCE_ID:-} ]] || die "IMDS_UNAVAILABLE"
+  [[ -n ${REGION:-} ]] || die "IMDS_UNAVAILABLE"
   OCI_AUTH=${OCI_AUTH:-instance_principal}
 }
 
 oci_json() {
-  "$OCI_BIN" "$@" --region "$REGION" --auth "$OCI_AUTH" --output json 2>/dev/null || die "OCI_AUTH_FAILURE"
+  local output err_file err_msg
+  err_file=$(mktemp)
+  if ! output=$("$OCI_BIN" "$@" --region "$REGION" --auth "$OCI_AUTH" --output json 2>"$err_file"); then
+    err_msg=$(tr '\n' ' ' <"$err_file" 2>/dev/null | head -c 400)
+    rm -f "$err_file"
+    if grep -qi "NotAuthorizedOrNotFound.*auth\|NotAuthenticated\|AuthenticationFailed\|AuthorizationFailed\|InvalidAuthentication" <<<"$err_msg"; then
+      die "OCI_AUTH_FAILURE"
+    elif grep -qi "NotAuthorizedOrNotFound" <<<"$err_msg"; then
+      # OCI returns same code for auth vs not-found; treat as not-found when the request was otherwise well-formed
+      # Prefer auth check above; this branch covers resource-not-found
+      die "OCI_NOT_FOUND"
+    elif grep -qi "does not exist\|NotFound\| 404" <<<"$err_msg"; then
+      die "OCI_NOT_FOUND"
+    elif grep -qi "InvalidParameter\|Invalid.*OCID\|Malformed\| 400" <<<"$err_msg"; then
+      die "OCI_INVALID_REQUEST"
+    elif grep -qi "Timeout\|timed out\|Max retries exceeded\|Could not connect\|Failed to establish.*connection\|Network is unreachable\|Name or service not known" <<<"$err_msg"; then
+      die "OCI_TIMEOUT"
+    else
+      die "OCI_CLI_FAILURE"
+    fi
+  fi
+  rm -f "$err_file"
+  printf '%s' "$output"
 }
 
 discover() {
@@ -87,6 +112,9 @@ rotate_dry_run() {
   validate_artifacts
   [[ $PUBLIC_IP_LIFETIME == EPHEMERAL ]] || die "IP_NOT_EPHEMERAL"
   printf 'dry_run=ok\ninstance=%s\ncurrent_ip=%s\nip_type=%s\n' "$DISPLAY_NAME" "$PUBLIC_IP" "$PUBLIC_IP_LIFETIME"
+  printf 'warning: old ephemeral IP will be permanently released first\n'
+  printf 'warning: there is no guaranteed rollback to the same public IP\n'
+  printf 'warning: failure after deletion can temporarily leave the VM without a public IP\n'
 }
 
 replace_ip() {
@@ -109,8 +137,10 @@ for p in targets:
     if not p.exists(): continue
     text = p.read_text()
     if old not in text: continue
-    p.write_text(text.replace(old, new))
-    p.chmod(0o600)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(text.replace(old, new))
+    tmp.chmod(0o600)
+    tmp.replace(p)
 PY
 }
 
@@ -121,7 +151,7 @@ rotate_confirm() {
   [[ $PUBLIC_IP_LIFETIME == EPHEMERAL ]] || die "IP_NOT_EPHEMERAL"
   [[ ${ALLOW_ROTATION:-no} == yes ]] || die "ROTATION_NOT_ARMED"
   [[ ${CONFIRM_ROTATION:-} == "$PUBLIC_IP" ]] || die "CONFIRM_IP_MISMATCH"
-  local stamp old new backup
+  local stamp old new backup tmp_report
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
   old=$PUBLIC_IP
   backup="$BACKUP_DIR/${stamp}-before-ip-rotation"
@@ -133,8 +163,10 @@ rotate_confirm() {
   new=$(jq -r '.data["ip-address"]' <<<"$public")
   [[ $new =~ ^[0-9]+(\.[0-9]+){3}$ && $new != "$old" ]] || die "NEW_IP_INVALID"
   replace_ip "$old" "$new"
-  install -m 600 /dev/null "$STATE_DIR/current-ip.env"
-  printf 'CURRENT_PUBLIC_IP=%q\nUPDATED_AT=%q\n' "$new" "$stamp" >"$STATE_DIR/current-ip.env"
+  tmp_report=$(mktemp)
+  printf 'CURRENT_PUBLIC_IP=%q\nUPDATED_AT=%q\n' "$new" "$stamp" >"$tmp_report"
+  install -m 600 "$tmp_report" "$STATE_DIR/current-ip.env"
+  rm -f "$tmp_report"
   if command -v qrencode >/dev/null; then
     qrencode -o "$BASE_DIR/client-configs/xray-vless-reality.png" <"$BASE_DIR/client-configs/xray-vless-reality-uri.txt"
     qrencode -o "$BASE_DIR/client-configs/hysteria2.png" <"$BASE_DIR/client-configs/hysteria2-uri.txt"
@@ -147,8 +179,10 @@ rotate_confirm() {
   systemctl is-active --quiet xray hysteria-server adguardhome || check=failed
   curl -4fsS --max-time 20 https://icanhazip.com/ | grep -qx "$new" || check=failed
   CHINA_PROXY_PROBE_CONFIG="$BASE_DIR/monitoring/probes/private/config.env" "$BASE_DIR/monitoring/probes/probe-all" >/dev/null || check=failed
-  install -m 600 /dev/null "$report"
-  printf '# OCI IP rotation\n\n- Time: %s\n- Old IP: %s\n- New IP: %s\n- IP type: EPHEMERAL\n- Post-check: %s\n- Backup: %s\n' "$stamp" "$old" "$new" "$check" "$backup" >"$report"
+  tmp_report=$(mktemp)
+  printf '# OCI IP rotation\n\n- Time: %s\n- Old IP: %s\n- New IP: %s\n- IP type: EPHEMERAL\n- Post-check: %s\n- Backup: %s\n' "$stamp" "$old" "$new" "$check" "$backup" >"$tmp_report"
+  install -m 600 "$tmp_report" "$report"
+  rm -f "$tmp_report"
   [[ $check == ok ]] || die "POST_ROTATION_CHECK_FAILED"
   printf 'rotation=complete\nold_ip=%s\nnew_ip=%s\nbackup=%s\nreport=%s\n' "$old" "$new" "$backup" "$report"
 }

@@ -11,6 +11,7 @@ import http.server
 import json
 import os
 import sys
+import threading
 import time
 import urllib.request
 
@@ -19,6 +20,10 @@ STATE_FILE = os.path.join(STATE_DIR, "state.json")
 NTFY_TARGET = "http://127.0.0.1:8480"
 DEDUP_WINDOW = 14400
 PRUNE_AFTER = 21600
+
+os.umask(0o077)
+
+_state_lock = threading.Lock()
 
 
 def load_state():
@@ -58,18 +63,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ips = extract_ips(body)
         now = time.time()
         if ips:
-            state = load_state()
-            if all(now - state.get(ip, 0) < DEDUP_WINDOW for ip in ips):
-                print("suppressed notification for IPs: %s" % ", ".join(ips), flush=True)
-                self.send_response(200)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-            for ip in ips:
-                state[ip] = now
-            for ip in [k for k, t in state.items() if now - t > PRUNE_AFTER]:
-                del state[ip]
-            save_state(state)
+            with _state_lock:
+                state = load_state()
+                if all(now - state.get(ip, 0) < DEDUP_WINDOW for ip in ips):
+                    print("suppressed notification for IPs: %s" % ", ".join(ips), flush=True)
+                    self.send_response(200)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                for ip in ips:
+                    state[ip] = now
+                for ip in [k for k, t in state.items() if now - t > PRUNE_AFTER]:
+                    del state[ip]
+                save_state(state)
         req = urllib.request.Request(NTFY_TARGET + self.path, data=body, method="POST")
         for header in ("Authorization", "Content-Type", "X-Priority", "X-Tags"):
             value = self.headers.get(header)

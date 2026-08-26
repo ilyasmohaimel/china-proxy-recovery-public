@@ -33,8 +33,10 @@ sudo blkid /dev/<NEW_DISK>
 Add the filesystem UUID, never the device name, to `/etc/fstab`:
 
 ```fstab
-UUID=<VOLUME_UUID> /srv ext4 defaults,_netdev,nofail,noatime 0 2
+UUID=<VOLUME_UUID> /srv ext4 defaults,_netdev,noatime 0 2
 ```
+
+`nofail` is intentionally omitted. With `nofail` the system can boot without `/srv` and then let Docker, backups, or apps silently write data onto the boot filesystem at the empty mountpoint. Failing the boot (or the mount) is safer than silently using the wrong filesystem. If you must keep `nofail` (e.g., to allow emergency boot when the volume is detached), add `x-systemd.requires-mounts-for=/srv` or `RequiresMountsFor=/srv` to every service that writes to `/srv` so they do not start without the mount.
 
 Then mount and verify it:
 

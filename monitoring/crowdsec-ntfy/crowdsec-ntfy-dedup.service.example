@@ -3,13 +3,32 @@ Description=CrowdSec to ntfy deduplication filter (4 hour per-IP window)
 After=network.target
 
 [Service]
+DynamicUser=yes
+StateDirectory=crowdsec-ntfy-dedup
 ExecStart=/usr/bin/python3 /usr/local/libexec/crowdsec-ntfy-dedup.py
 Restart=always
 RestartSec=2
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/crowdsec-ntfy-dedup
+ProtectHome=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateDevices=yes
+ProtectKernelLogs=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

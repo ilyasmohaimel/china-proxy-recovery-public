@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import pathlib
 import urllib.parse
+
+os.umask(0o077)
 
 
 def one(values, name, default=None):
@@ -110,11 +113,17 @@ def main():
     output = pathlib.Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
 
+    def _safe_write(path, data):
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(data)
+        tmp.chmod(0o600)
+        tmp.replace(path)
+
     reality = reality_config(source / "xray-vless-reality-uri.txt", args.server, args.reality_port, args.dns_host)
-    (output / "reality-client.json").write_text(json.dumps(reality, indent=2) + "\n")
+    _safe_write(output / "reality-client.json", json.dumps(reality, indent=2) + "\n")
 
     hysteria = hysteria_config(source / "hysteria2-uri.txt", args.server, args.hysteria_port)
-    (output / "hysteria-client.yaml").write_text(hysteria_yaml(hysteria))
+    _safe_write(output / "hysteria-client.yaml", hysteria_yaml(hysteria))
 
     xhttp_path = source / "xray-xhttp-reality-client.json"
     xhttp = json.loads(xhttp_path.read_text())
@@ -128,10 +137,7 @@ def main():
     routing = xhttp.setdefault("routing", {"domainStrategy": "AsIs", "rules": []})
     rule = private_dns_rule(args.dns_host)
     routing["rules"] = [rule] + [existing for existing in routing.get("rules", []) if existing != rule]
-    (output / "xhttp-client.json").write_text(json.dumps(xhttp, indent=2) + "\n")
-
-    for path in output.iterdir():
-        path.chmod(0o600)
+    _safe_write(output / "xhttp-client.json", json.dumps(xhttp, indent=2) + "\n")
 
 
 if __name__ == "__main__":

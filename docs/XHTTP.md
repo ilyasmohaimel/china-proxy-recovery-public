@@ -21,6 +21,18 @@ The localhost port is not public and needs no UFW or OCI rule.
 
 This gives transport diversity on the same public IP. It does not help if the IP itself is blocked.
 
+## REALITY target
+
+Failed REALITY authentication is forwarded to the configured `target` (`<REALITY_TARGET>`). The target sees the client's TLS handshake as if it came directly from the censor's probe.
+
+Choose the target carefully:
+
+- Use a plausible, stable public site that tolerates unsolicited TLS (e.g., a generic SNI like `<REALITY_SNI>` pointing at `<REALITY_TARGET>` that you control or that is known to handle such traffic).
+- Never point the target at an internal service, private IP, or a host that would treat forwarded probes as abuse.
+- An intentionally weak or intentionally open target can make the VPS itself useful as an unintended forwarder — avoid configurations that accept arbitrary unauthenticated traffic and blindly proxy it onward.
+
+All REALITY SNI/target values in this repo are `<PLACEHOLDER>` examples. Generate your own and keep them consistent between server and client.
+
 Xray-core is the reference client for this profile. Keep RAW REALITY and Hysteria2 for clients that do not support this exact XHTTP profile.
 
 The full Xray client JSON puts the exact private AdGuard address and port on the proxy outbound before its generic private-network direct rule. A VLESS URI cannot carry this DNS routing rule, so reproduce it in the client after URI import.

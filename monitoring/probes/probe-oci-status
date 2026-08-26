@@ -5,7 +5,7 @@ load_probe_config
 start=$(now_ms); success=false; error=
 if ! output=$(oci-emergency-ip status 2>&1); then
   error=$(printf '%s' "$output" | tail -1 | cut -c1-80)
-elif ! grep -q "public_ip=$CURRENT_IP" <<<"$output"; then
+elif ! grep -F -q "public_ip=$CURRENT_IP" <<<"$output"; then
   error=PUBLIC_IP_CHANGED
 else
   success=true

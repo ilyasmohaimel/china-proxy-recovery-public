@@ -145,7 +145,15 @@ sudo oci-emergency-ip rotate --confirm
 
 It discovers the instance, primary VNIC, private IP, public IP object, and IP lifetime before changing anything. A confirmed rotation backs up private state, preserves credentials, updates approved artifacts, and runs the local end-to-end probes.
 
-The tool uses instance-principal auth. It requires a dynamic group and policy in the OCI tenancy; without them it reports `OCI_AUTH_FAILURE` (details in `IP-ROTATION.md`).
+The tool uses instance-principal auth. It requires a dynamic group and policy in the OCI tenancy; without them it reports an auth failure (details in `IP-ROTATION.md`).
+
+**Failure window:** rotation deletes the old ephemeral public IP before creating the replacement.
+
+- old ephemeral IP will be permanently released first
+- there is no guaranteed rollback to the same public IP
+- failure after deletion can temporarily leave the VM without a public IP
+
+`--dry-run` explains this window explicitly and never modifies OCI resources. Do not rotate without out-of-band access (e.g., OCI Console).
 
 No scheduled IP rotation.
 
